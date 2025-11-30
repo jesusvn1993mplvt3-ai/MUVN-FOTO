@@ -12,26 +12,25 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     
     <style>
+        /* Scrollbar Oscuro */
         .custom-scrollbar::-webkit-scrollbar { height: 4px; width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #0f172a; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
         
-        /* Ocultar flechas de input number */
         input[type=number]::-webkit-inner-spin-button, 
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         
         .prod-input {
             width: 100%; height: 100%; text-align: center; font-weight: bold;
-            color: #1e3a8a; border: none; background: transparent; outline: none;
+            color: #e2e8f0; border: none; background: transparent; outline: none;
         }
-        .prod-input:focus { background: #eef2ff; }
+        .prod-input:focus { background: #1e293b; color: #60a5fa; }
 
-        /* Animación suave para móvil */
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
-<body class="bg-slate-100 text-slate-800 font-sans fixed inset-0 overflow-hidden">
+<body class="bg-slate-900 text-slate-200 font-sans fixed inset-0 overflow-hidden">
 
     <div id="root" class="h-full"></div>
 
@@ -57,7 +56,8 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        // --- DATA ---
+        // --- CONSTANTES ---
+        const MASTER_PIN = "13524680";
         const ROLES = { ADMIN: 'admin', COMMENTATOR: 'commentator', OBSERVER: 'observer' };
         const USERS = {
             '1111': { name: 'Marco Espinoza', role: ROLES.ADMIN },
@@ -65,7 +65,6 @@
             '2222': { name: 'Susana', role: ROLES.OBSERVER },
         };
         
-        // Ordenamos máquinas para vista móvil (Grid de 2 columnas se ve mejor si agrupamos por tipo visualmente)
         const MACHINES = [
             { id: 'm35', name: 'MAQ 35', type: 'SANTONI SM8', needles: 1440 },
             { id: 'm39', name: 'MAQ 39', type: 'SANTONI SM8', needles: 1440 },
@@ -97,12 +96,16 @@
             const start = new Date(2026, 0, 1);
             const end = new Date(2026, 11, 31);
             
+            let idx = 0;
             for (let d = start; d <= end; d.setDate(d.getDate() + 1)) {
                 dates.push({
+                    index: idx++,
                     id: `${fullDays[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`,
                     shortDay: days[d.getDay()],
                     dateNum: d.getDate(),
-                    month: months[d.getMonth()]
+                    month: months[d.getMonth()],
+                    // Formato ISO para comparar con el input type date
+                    isoDate: d.toISOString().split('T')[0] 
                 });
             }
             return dates;
@@ -129,84 +132,267 @@
                 else alert('PIN incorrecto');
             };
             return (
-                <div className="flex items-center justify-center h-full bg-slate-100 p-4">
-                    <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm text-center">
-                        <div className="bg-blue-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6 text-white shadow-lg">
+                <div className="flex items-center justify-center h-full bg-slate-900 p-4">
+                    <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl w-full max-w-sm text-center border border-slate-700">
+                        <div className="bg-blue-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6 text-white shadow-lg shadow-blue-900/50">
                             <i data-lucide="factory" className="w-8 h-8"></i>
                         </div>
-                        <h2 className="text-2xl font-black text-slate-800 mb-2">Cirineo Mobile</h2>
-                        <p className="text-slate-500 mb-8">Control de Producción 2026</p>
+                        <h2 className="text-2xl font-black text-white mb-2">Cirineo Mobile</h2>
+                        <p className="text-slate-400 mb-8">Control de Producción 2026</p>
                         <form onSubmit={handleLogin} className="space-y-4">
                             <input type="tel" value={pin} onChange={(e) => setPin(e.target.value)}
-                                placeholder="• • • •" className="w-full text-center text-4xl p-4 border-2 border-slate-200 rounded-xl tracking-[1em] focus:border-blue-500 outline-none transition-colors font-bold text-slate-700" maxLength="4" autoFocus />
-                            <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-blue-700 active:scale-95 transition-all shadow-lg shadow-blue-200">INGRESAR</button>
+                                placeholder="• • • •" className="w-full text-center text-4xl p-4 bg-slate-900 border-2 border-slate-700 rounded-xl tracking-[1em] focus:border-blue-500 outline-none transition-colors font-bold text-white placeholder-slate-600" maxLength="4" autoFocus />
+                            <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-blue-500 active:scale-95 transition-all shadow-lg shadow-blue-900/20">INGRESAR</button>
                         </form>
                     </div>
                 </div>
             );
         };
 
-        const PlanningModal = ({ machine, rowId, currentData, onClose, onSave }) => {
+        // --- MODAL DE VISIBILIDAD (NUEVO) ---
+        const VisibilityModal = ({ onClose, currentHiddenMachines, currentHiddenDays, onSaveVisibility, allRows }) => {
+            const [pin, setPin] = useState('');
+            const [isUnlocked, setIsUnlocked] = useState(false);
+            const [error, setError] = useState('');
+
+            // Estado local para edición
+            const [hiddenM, setHiddenM] = useState([...currentHiddenMachines]);
+            const [hiddenD, setHiddenD] = useState([...currentHiddenDays]);
+            const [dateToHide, setDateToHide] = useState('');
+
+            const checkPin = (e) => {
+                e.preventDefault();
+                if (pin === MASTER_PIN) setIsUnlocked(true);
+                else setError('PIN no autorizado');
+            };
+
+            const toggleMachine = (mid) => {
+                if (hiddenM.includes(mid)) setHiddenM(prev => prev.filter(id => id !== mid));
+                else setHiddenM(prev => [...prev, mid]);
+            };
+
+            const hideDate = () => {
+                if(!dateToHide) return;
+                // Buscar el ID del row basado en la fecha ISO
+                const row = allRows.find(r => r.isoDate === dateToHide);
+                if (row && !hiddenD.includes(row.id)) {
+                    setHiddenD(prev => [...prev, row.id]);
+                }
+                setDateToHide('');
+            };
+
+            const unhideDate = (rowId) => {
+                setHiddenD(prev => prev.filter(id => id !== rowId));
+            };
+
+            const handleSave = () => {
+                onSaveVisibility(hiddenM, hiddenD);
+                onClose();
+            };
+
+            if (!isUnlocked) {
+                return (
+                    <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4 fade-in" onClick={onClose}>
+                        <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm text-center border border-slate-700" onClick={e=>e.stopPropagation()}>
+                            <div className="bg-red-500/20 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
+                                <i data-lucide="lock" className="w-6 h-6"></i>
+                            </div>
+                            <h3 className="text-white font-bold text-lg mb-4">Acceso Restringido</h3>
+                            <form onSubmit={checkPin}>
+                                <input type="password" value={pin} onChange={e => {setPin(e.target.value); setError('')}} 
+                                    className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-center text-white text-xl tracking-widest mb-2 focus:border-red-500 outline-none" placeholder="PIN Maestro" autoFocus />
+                                {error && <p className="text-red-400 text-xs mb-2">{error}</p>}
+                                <button type="submit" className="w-full bg-slate-700 text-white font-bold py-3 rounded-lg hover:bg-slate-600">Autorizar</button>
+                            </form>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4 fade-in" onClick={onClose}>
+                    <div className="bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg h-[80vh] flex flex-col border border-slate-700" onClick={e=>e.stopPropagation()}>
+                        <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900 rounded-t-2xl">
+                            <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                                <i data-lucide="eye-off" className="w-5 h-5 text-slate-400"></i>
+                                Gestionar Visibilidad
+                            </h3>
+                            <button onClick={onClose}><i data-lucide="x" className="text-slate-400 w-6 h-6"></i></button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-6">
+                            
+                            {/* Sección Máquinas */}
+                            <div>
+                                <h4 className="text-xs font-bold text-blue-400 uppercase mb-2 border-b border-slate-700 pb-1">Ocultar Máquinas</h4>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {MACHINES.map(m => {
+                                        const isHidden = hiddenM.includes(m.id);
+                                        return (
+                                            <button key={m.id} onClick={() => toggleMachine(m.id)}
+                                                className={`flex items-center justify-between p-2 rounded border text-sm ${isHidden ? 'bg-red-900/30 border-red-500/50 text-red-300' : 'bg-slate-900 border-slate-700 text-slate-300'}`}>
+                                                <span>{m.name}</span>
+                                                {isHidden ? <i data-lucide="eye-off" className="w-4 h-4"></i> : <i data-lucide="eye" className="w-4 h-4 text-green-500/50"></i>}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Sección Días */}
+                            <div>
+                                <h4 className="text-xs font-bold text-blue-400 uppercase mb-2 border-b border-slate-700 pb-1">Ocultar Días</h4>
+                                <div className="flex gap-2 mb-3">
+                                    <input type="date" 
+                                        min="2026-01-01" max="2026-12-31"
+                                        value={dateToHide} onChange={e => setDateToHide(e.target.value)}
+                                        className="bg-slate-900 text-white border border-slate-600 rounded p-2 flex-1 text-sm outline-none focus:border-blue-500" />
+                                    <button onClick={hideDate} className="bg-slate-700 px-3 rounded hover:bg-slate-600 text-white font-bold text-sm">Ocultar</button>
+                                </div>
+                                
+                                {hiddenD.length > 0 ? (
+                                    <div className="space-y-1 bg-slate-900/50 p-2 rounded border border-slate-700">
+                                        {hiddenD.map(rid => (
+                                            <div key={rid} className="flex justify-between items-center text-sm p-2 bg-slate-800 rounded">
+                                                <span className="text-slate-300">{rid}</span>
+                                                <button onClick={() => unhideDate(rid)} className="text-red-400 hover:text-red-300 text-xs font-bold uppercase">Mostrar</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-xs text-slate-500 italic">No hay días ocultos.</p>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="p-4 border-t border-slate-700 bg-slate-900 rounded-b-2xl">
+                            <button onClick={handleSave} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-500">Guardar Cambios</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const PlanningModal = ({ machine, rowId, currentData, onClose, onSave, allRows }) => {
             const [model, setModel] = useState(currentData?.plan_model || '');
             const [targetQty, setTargetQty] = useState(currentData?.plan_target_qty || '');
             const [timeMin, setTimeMin] = useState(currentData?.plan_time_min || '');
             const [hours, setHours] = useState(currentData?.plan_hours || 12);
             const [link, setLink] = useState(currentData?.plan_link || '');
+            const [isReplicating, setIsReplicating] = useState(false);
+            const [endDateIndex, setEndDateIndex] = useState(allRows.findIndex(r => r.id === rowId));
+            const [selectedMachines, setSelectedMachines] = useState([machine.id]);
+
+            const currentRowIndex = allRows.findIndex(r => r.id === rowId);
+            const futureRows = allRows.slice(currentRowIndex, currentRowIndex + 30);
 
             const handleSave = () => {
-                onSave(rowId, machine.id, {
+                const planData = {
                     plan_model: model || null,
                     plan_target_qty: Number(targetQty) || null,
                     plan_time_min: Number(timeMin) || null,
                     plan_hours: Number(hours) || null,
                     plan_link: link || null
-                });
+                };
+                if (!isReplicating) {
+                    onSave([rowId], [machine.id], planData);
+                } else {
+                    const targetRowIds = [];
+                    for(let i = currentRowIndex; i <= endDateIndex; i++) {
+                        targetRowIds.push(allRows[i].id);
+                    }
+                    onSave(targetRowIds, selectedMachines, planData);
+                }
                 onClose();
             };
+
+            const toggleMachine = (mid) => {
+                if (selectedMachines.includes(mid)) {
+                    if (selectedMachines.length > 1) setSelectedMachines(prev => prev.filter(id => id !== mid));
+                } else {
+                    setSelectedMachines(prev => [...prev, mid]);
+                }
+            };
+            const toggleAllMachines = () => {
+                if (selectedMachines.length === MACHINES.length) setSelectedMachines([machine.id]);
+                else setSelectedMachines(MACHINES.map(m => m.id));
+            }
 
             const { targetPieces } = calculateProduction(Number(targetQty), Number(timeMin), Number(hours), 0);
 
             return (
-                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 fade-in" onClick={onClose}>
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
-                            <h3 className="font-bold text-lg">Planificar {machine.name}</h3>
-                            <button onClick={onClose} className="p-2 bg-white/10 rounded-full"><i data-lucide="x" className="w-5 h-5"></i></button>
+                <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4 fade-in" onClick={onClose}>
+                    <div className="bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-700" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 bg-slate-900 border-b border-slate-700 flex justify-between items-center">
+                            <h3 className="font-bold text-lg text-white">Planificar {machine.name}</h3>
+                            <button onClick={onClose} className="p-2 bg-white/5 hover:bg-white/10 rounded-full text-slate-400 hover:text-white"><i data-lucide="x" className="w-5 h-5"></i></button>
                         </div>
-                        <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                        <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto custom-scrollbar">
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase">Modelo</label>
-                                <input type="text" value={model} onChange={e => setModel(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg font-bold text-lg uppercase" placeholder="Ej: B001" />
+                                <label className="text-xs font-bold text-slate-400 uppercase">Modelo</label>
+                                <input type="text" value={model} onChange={e => setModel(e.target.value)} className="w-full p-3 bg-slate-900 border border-slate-700 text-white rounded-lg font-bold text-lg uppercase focus:border-blue-500 outline-none" placeholder="Ej: B001" />
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase">Pedido Total</label>
-                                    <input type="number" value={targetQty} onChange={e => setTargetQty(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg" />
+                                    <label className="text-xs font-bold text-slate-400 uppercase">Pedido Total</label>
+                                    <input type="number" value={targetQty} onChange={e => setTargetQty(e.target.value)} className="w-full p-3 bg-slate-900 border border-slate-700 text-white rounded-lg focus:border-blue-500 outline-none" />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase">Min/Pieza</label>
-                                    <input type="number" value={timeMin} onChange={e => setTimeMin(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg" />
+                                    <label className="text-xs font-bold text-slate-400 uppercase">Min/Pieza</label>
+                                    <input type="number" value={timeMin} onChange={e => setTimeMin(e.target.value)} className="w-full p-3 bg-slate-900 border border-slate-700 text-white rounded-lg focus:border-blue-500 outline-none" />
                                 </div>
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase">Turno</label>
-                                <select value={hours} onChange={e => setHours(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                                <label className="text-xs font-bold text-slate-400 uppercase">Turno</label>
+                                <select value={hours} onChange={e => setHours(e.target.value)} className="w-full p-3 bg-slate-900 border border-slate-700 text-white rounded-lg focus:border-blue-500 outline-none">
                                     <option value={12}>12 Horas</option>
                                     <option value={24}>24 Horas</option>
                                 </select>
                             </div>
                              <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase">Enlace Ficha (URL)</label>
-                                <input type="url" value={link} onChange={e => setLink(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-blue-600" placeholder="https://..." />
+                                <label className="text-xs font-bold text-slate-400 uppercase">Enlace Ficha (URL)</label>
+                                <input type="url" value={link} onChange={e => setLink(e.target.value)} className="w-full p-3 bg-slate-900 border border-slate-700 rounded-lg text-sm text-blue-400 focus:border-blue-500 outline-none" placeholder="https://..." />
                             </div>
-                            <div className="bg-blue-50 p-4 rounded-xl text-center border border-blue-100">
-                                <span className="block text-xs text-blue-500 font-bold uppercase mb-1">Meta Calculada (Turno)</span>
-                                <span className="text-3xl font-black text-blue-700">{targetPieces}</span>
-                                <span className="text-sm text-blue-400 font-medium"> pzas</span>
+                            <div className="bg-slate-900/50 p-4 rounded-xl text-center border border-slate-700">
+                                <span className="block text-xs text-blue-400 font-bold uppercase mb-1">Meta Calculada (Turno)</span>
+                                <span className="text-3xl font-black text-blue-500">{targetPieces}</span>
+                                <span className="text-sm text-slate-500 font-medium"> pzas</span>
+                            </div>
+                            <div className="border-t border-slate-700 pt-4">
+                                <button onClick={() => setIsReplicating(!isReplicating)} className="flex items-center gap-2 text-sm font-bold text-slate-300 mb-3 hover:text-white">
+                                    <i data-lucide={isReplicating ? "check-square" : "square"} className={`w-4 h-4 ${isReplicating ? 'text-blue-500' : 'text-slate-500'}`}></i> Replicar / Copiar Plan
+                                </button>
+                                {isReplicating && (
+                                    <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700 space-y-4 animate-fadeIn">
+                                        <div>
+                                            <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">Hasta la fecha:</label>
+                                            <select value={endDateIndex} onChange={e => setEndDateIndex(Number(e.target.value))} className="w-full p-2 bg-slate-800 border border-slate-600 text-white rounded text-sm">
+                                                {futureRows.map(r => (
+                                                    <option key={r.index} value={r.index}>{r.shortDay} {r.dateNum} {r.month}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <div className="flex justify-between items-center mb-2">
+                                                <label className="text-xs font-bold text-slate-400 uppercase">Aplicar a máquinas:</label>
+                                                <button onClick={toggleAllMachines} className="text-[10px] text-blue-400 hover:text-blue-300 font-bold">{selectedMachines.length === MACHINES.length ? 'Deseleccionar' : 'Todas'}</button>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-2 max-h-32 overflow-y-auto custom-scrollbar">
+                                                {MACHINES.map(m => (
+                                                    <button key={m.id} onClick={() => toggleMachine(m.id)} className={`text-[10px] p-2 rounded border transition-colors ${selectedMachines.includes(m.id) ? 'bg-blue-600 border-blue-500 text-white font-bold' : 'bg-slate-800 border-slate-600 text-slate-400 hover:bg-slate-700'}`}>
+                                                        {m.name.replace('MAQ ', 'M-')}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
-                        <div className="p-4 bg-slate-50 border-t">
-                            <button onClick={handleSave} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold text-lg hover:bg-blue-700 shadow-lg shadow-blue-200">Guardar Plan</button>
+                        <div className="p-4 bg-slate-900 border-t border-slate-700">
+                            <button onClick={handleSave} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold text-lg hover:bg-blue-500 shadow-lg shadow-blue-900/20 active:scale-95 transition-all">
+                                {isReplicating ? 'Guardar Cambios Masivos' : 'Guardar Plan'}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -216,29 +402,41 @@
         const App = () => {
             const [user, setUser] = useState(null);
             const [data, setData] = useState({});
+            const [visibilityConfig, setVisibilityConfig] = useState({ machines: [], days: [] });
             const [loading, setLoading] = useState(true);
             const [weekOffset, setWeekOffset] = useState(0);
-            const [selectedDayIndex, setSelectedDayIndex] = useState(0); // Para vista móvil (0 = Domingo, 1 = Lunes...)
+            const [selectedDayIndex, setSelectedDayIndex] = useState(0); 
             const [planModal, setPlanModal] = useState(null);
+            const [showVisibilityModal, setShowVisibilityModal] = useState(false);
 
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); });
 
             useEffect(() => {
                 const unsubAuth = onAuthStateChanged(auth, (u) => {
                     if (u) {
+                        // 1. Escuchar Data Producción
                         const unsubDb = onSnapshot(collection(db, 'produccion_2026'), (snap) => {
                             const d = {};
                             snap.forEach(doc => d[doc.id] = doc.data());
                             setData(d);
                             setLoading(false);
                         });
-                        return () => unsubDb();
+                        // 2. Escuchar Configuración de Visibilidad
+                        const unsubSettings = onSnapshot(doc(db, 'settings', 'visibility'), (docSnap) => {
+                            if (docSnap.exists()) {
+                                setVisibilityConfig({
+                                    machines: docSnap.data().machines || [],
+                                    days: docSnap.data().days || []
+                                });
+                            }
+                        });
+
+                        return () => { unsubDb(); unsubSettings(); };
                     } else signInAnonymously(auth);
                 });
                 return () => unsubAuth();
             }, []);
 
-            // --- FUNCIÓN DE GUARDADO CORREGIDA (VITAL) ---
             const handleSaveData = async (rowId, machineId, field, value) => {
                 const numericValue = Number(value) > 0 ? Number(value) : null;
                 const currentMachineData = data[rowId]?.[machineId] || {};
@@ -256,239 +454,223 @@
                     updatedMachine.calculated_target = res.targetPieces;
                     updatedMachine.percentage = res.percentage;
                 }
-                
-                // GUARDADO SEGURO DE OBJETO COMPLETO
                 await setDoc(doc(db, 'produccion_2026', rowId), { [machineId]: updatedMachine }, { merge: true });
             };
 
-            const handleSavePlan = async (rowId, machineId, planData) => {
-                const currentM = data[rowId]?.[machineId] || {};
-                const actualQty = currentM.actual || 0;
-                const res = calculateProduction(planData.plan_target_qty, planData.plan_time_min, planData.plan_hours, actualQty);
-                
-                const updatedMachine = {
-                    ...currentM,
-                    ...planData,
-                    actual: actualQty,
-                    calculated_target: res.targetPieces,
-                    percentage: res.percentage
-                };
-
-                await setDoc(doc(db, 'produccion_2026', rowId), { [machineId]: updatedMachine }, { merge: true });
+            const handleSavePlan = async (rowIds, machineIds, planData) => {
+                const promises = [];
+                rowIds.forEach(rId => {
+                    const docRef = doc(db, 'produccion_2026', rId);
+                    const updatePayload = {};
+                    machineIds.forEach(mId => {
+                        const currentM = data[rId]?.[mId] || {};
+                        const actualQty = currentM.actual || 0;
+                        const res = calculateProduction(planData.plan_target_qty, planData.plan_time_min, planData.plan_hours, actualQty);
+                        updatePayload[mId] = {
+                            ...currentM, ...planData, actual: actualQty, calculated_target: res.targetPieces, percentage: res.percentage
+                        };
+                    });
+                    promises.push(setDoc(docRef, updatePayload, { merge: true }));
+                });
+                await Promise.all(promises);
             };
+
+            const handleSaveVisibility = async (hiddenMachines, hiddenDays) => {
+                await setDoc(doc(db, 'settings', 'visibility'), {
+                    machines: hiddenMachines,
+                    days: hiddenDays
+                }, { merge: true });
+            };
+
+            // Filtrar máquinas y días según configuración
+            const visibleMachines = useMemo(() => {
+                return MACHINES.filter(m => !visibilityConfig.machines.includes(m.id));
+            }, [visibilityConfig.machines]);
 
             const currentWeekRows = useMemo(() => {
                 const start = weekOffset * 7;
-                return ALL_ROWS.slice(start, start + 7);
-            }, [weekOffset]);
+                // Obtenemos 7 días, pero filtramos los ocultos
+                const rawWeek = ALL_ROWS.slice(start, start + 7);
+                return rawWeek.filter(r => !visibilityConfig.days.includes(r.id));
+            }, [weekOffset, visibilityConfig.days]);
 
             if (!user) return <LoginScreen setAuthenticatedUser={setUser} />;
-            if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50"><i data-lucide="loader-2" className="animate-spin w-12 h-12 text-blue-600"></i></div>;
+            if (loading) return <div className="h-screen flex items-center justify-center bg-slate-900"><i data-lucide="loader-2" className="animate-spin w-12 h-12 text-blue-500"></i></div>;
 
-            // --- VISTA MÓVIL (Optimización Extrema) ---
+            // --- VISTA MÓVIL ---
             const MobileView = () => {
-                const selectedDay = currentWeekRows[selectedDayIndex];
+                // Ajustar índice si el día seleccionado desaparece por filtro
+                const safeIndex = selectedDayIndex >= currentWeekRows.length ? 0 : selectedDayIndex;
+                const selectedDay = currentWeekRows[safeIndex];
+                
+                if (!selectedDay) return <div className="p-10 text-center text-slate-500">Semana sin días visibles</div>;
+
                 const rowId = selectedDay.id;
                 const dayData = data[rowId] || {};
-                
-                // Calcular total del día seleccionado
-                const dayTotal = MACHINES.reduce((acc, m) => acc + (dayData[m.id]?.actual || 0), 0);
+                const dayTotal = visibleMachines.reduce((acc, m) => acc + (dayData[m.id]?.actual || 0), 0);
 
                 return (
-                    <div className="flex flex-col h-full bg-slate-100">
-                        {/* Header Móvil */}
-                        <div className="bg-white shadow-sm z-20 shrink-0">
-                            <div className="p-3 flex justify-between items-center border-b border-slate-100">
+                    <div className="flex flex-col h-full bg-slate-900">
+                        <div className="bg-slate-800 shadow-sm z-20 shrink-0 border-b border-slate-700">
+                            <div className="p-3 flex justify-between items-center">
                                 <div className="flex items-center gap-2">
-                                    <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-blue-200 shadow-md">
-                                        <i data-lucide="calendar" className="w-4 h-4"></i>
-                                    </div>
+                                    <button onClick={() => setShowVisibilityModal(true)} className="w-8 h-8 bg-slate-700 rounded-lg flex items-center justify-center text-slate-300 active:scale-95">
+                                        <i data-lucide="eye" className="w-4 h-4"></i>
+                                    </button>
                                     <div>
-                                        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Semana {weekOffset + 1}</h2>
-                                        <p className="font-black text-slate-800 leading-none">{selectedDay.month} {selectedDay.dateNum}</p>
+                                        <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Semana {weekOffset + 1}</h2>
+                                        <p className="font-black text-slate-100 leading-none">{selectedDay.month} {selectedDay.dateNum}</p>
                                     </div>
                                 </div>
                                 <div className="text-right">
-                                    <p className="text-[10px] text-slate-400 font-bold uppercase">Total Día</p>
-                                    <p className="text-xl font-black text-blue-600 leading-none">{dayTotal.toLocaleString()}</p>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase">Total Día</p>
+                                    <p className="text-xl font-black text-blue-500 leading-none">{dayTotal.toLocaleString()}</p>
                                 </div>
                             </div>
                             
-                            {/* Pestañas de Días (Scroll Horizontal) */}
-                            <div className="flex overflow-x-auto custom-scrollbar pb-1 px-1 gap-1 bg-slate-50">
+                            <div className="flex overflow-x-auto custom-scrollbar pb-1 px-1 gap-1 bg-slate-900/50">
                                 {currentWeekRows.map((day, idx) => (
-                                    <button 
-                                        key={idx}
-                                        onClick={() => setSelectedDayIndex(idx)}
-                                        className={`flex-shrink-0 flex flex-col items-center justify-center p-2 min-w-[60px] rounded-lg my-2 transition-all ${selectedDayIndex === idx ? 'bg-white shadow-md border-b-4 border-blue-600 scale-105' : 'text-slate-400 hover:bg-white/50'}`}
-                                    >
+                                    <button key={day.id} onClick={() => setSelectedDayIndex(idx)}
+                                        className={`flex-shrink-0 flex flex-col items-center justify-center p-2 min-w-[60px] rounded-lg my-2 transition-all ${idx === safeIndex ? 'bg-slate-700 shadow border-b-4 border-blue-500 scale-105' : 'text-slate-500 hover:bg-slate-800'}`}>
                                         <span className="text-[10px] font-bold uppercase mb-0.5">{day.shortDay}</span>
-                                        <span className={`text-lg font-black leading-none ${selectedDayIndex === idx ? 'text-slate-800' : 'text-slate-300'}`}>{day.dateNum}</span>
+                                        <span className={`text-lg font-black leading-none ${idx === safeIndex ? 'text-white' : 'text-slate-600'}`}>{day.dateNum}</span>
                                     </button>
                                 ))}
                             </div>
                         </div>
 
-                        {/* Lista de Máquinas (Grid Móvil) */}
-                        <div className="flex-1 overflow-y-auto p-3 space-y-3 pb-24">
-                            {MACHINES.map(m => {
+                        <div className="flex-1 overflow-y-auto p-3 space-y-3 pb-24 custom-scrollbar">
+                            {visibleMachines.map(m => {
                                 const mData = dayData[m.id] || {};
                                 const pct = mData.percentage || 0;
                                 const target = mData.calculated_target || 0;
                                 const actual = mData.actual !== undefined && mData.actual !== null ? mData.actual : '';
                                 const hasPlan = !!mData.plan_model;
-                                
-                                // Color de barra de progreso
-                                const progressColor = pct >= 100 ? 'bg-green-500' : pct > 80 ? 'bg-blue-500' : pct > 50 ? 'bg-orange-400' : 'bg-red-400';
+                                const progressColor = pct >= 100 ? 'bg-green-500' : pct > 80 ? 'bg-blue-500' : pct > 50 ? 'bg-orange-500' : 'bg-red-500';
 
                                 return (
-                                    <div key={m.id} className="bg-white rounded-xl p-3 shadow-sm border border-slate-100 relative overflow-hidden">
-                                        {/* Barra de progreso de fondo sutil */}
-                                        {hasPlan && (
-                                            <div className={`absolute bottom-0 left-0 h-1 ${progressColor}`} style={{ width: `${Math.min(pct, 100)}%` }}></div>
-                                        )}
-
+                                    <div key={m.id} className="bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-700 relative overflow-hidden">
+                                        {hasPlan && <div className={`absolute bottom-0 left-0 h-1 ${progressColor} opacity-50`} style={{ width: `${Math.min(pct, 100)}%` }}></div>}
                                         <div className="flex justify-between items-start mb-2">
                                             <div className="flex items-center gap-2">
-                                                <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden">
-                                                    <img src="https://raw.githubusercontent.com/jesusvn1993mplvt3-ai/CIRINEO/refs/heads/main/icon.png" className="w-5 h-5 opacity-70" onError={e=>e.target.style.display='none'} />
+                                                <div className="w-8 h-8 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center overflow-hidden">
+                                                    <i data-lucide="cpu" className="w-4 h-4 text-slate-500"></i>
                                                 </div>
                                                 <div>
-                                                    <h3 className="font-black text-slate-700 text-sm">{m.name.replace('MAQ ','M-')}</h3>
-                                                    <p className="text-[10px] text-slate-400 font-medium">{m.type}</p>
+                                                    <h3 className="font-black text-slate-200 text-sm">{m.name.replace('MAQ ','M-')}</h3>
+                                                    <p className="text-[10px] text-slate-500 font-medium">{m.type}</p>
                                                 </div>
                                             </div>
-                                            
                                             {hasPlan ? (
                                                 <div className="flex flex-col items-end">
-                                                    <span className={`text-xs font-black px-2 py-0.5 rounded-full ${pct>=100?'bg-green-100 text-green-700': pct>70?'bg-blue-100 text-blue-700':'bg-red-100 text-red-700'}`}>
-                                                        {pct}%
-                                                    </span>
-                                                    <span className="text-[10px] text-slate-400 mt-0.5 font-medium">Meta: {target}</span>
+                                                    <span className={`text-xs font-black px-2 py-0.5 rounded-full ${pct>=100?'bg-green-900/50 text-green-400': pct>70?'bg-blue-900/50 text-blue-400':'bg-red-900/50 text-red-400'}`}>{pct}%</span>
+                                                    <span className="text-[10px] text-slate-500 mt-0.5 font-medium">Meta: {target}</span>
                                                 </div>
                                             ) : (
-                                                <button onClick={() => setPlanModal({ machineId: m.id, rowId })} className="text-[10px] bg-slate-100 text-slate-500 px-2 py-1 rounded hover:bg-slate-200">
-                                                    + Plan
-                                                </button>
+                                                <button onClick={() => setPlanModal({ machineId: m.id, rowId })} className="text-[10px] bg-slate-700 text-slate-400 px-2 py-1 rounded hover:bg-slate-600">+ Plan</button>
                                             )}
                                         </div>
-
-                                        <div className="grid grid-cols-[1fr_auto] gap-3 items-center bg-slate-50 rounded-lg p-1 border border-slate-100">
-                                            {/* Info Modelo */}
+                                        <div className="grid grid-cols-[1fr_auto] gap-3 items-center bg-slate-900/50 rounded-lg p-1 border border-slate-700/50">
                                             <div className="px-2" onClick={() => user.role === ROLES.ADMIN && setPlanModal({ machineId: m.id, rowId })}>
                                                 {hasPlan ? (
                                                     <div>
                                                         <div className="flex items-center gap-1">
                                                             <span className="text-xs font-bold text-slate-500">MOD:</span>
-                                                            <span className="text-sm font-black text-slate-800">{mData.plan_model}</span>
+                                                            <span className="text-sm font-black text-slate-300">{mData.plan_model}</span>
                                                             {mData.plan_link && <i data-lucide="link" className="w-3 h-3 text-blue-400"></i>}
                                                         </div>
                                                     </div>
-                                                ) : (
-                                                    <span className="text-xs text-slate-400 italic">Sin plan asignado</span>
-                                                )}
+                                                ) : <span className="text-xs text-slate-600 italic">Sin plan asignado</span>}
                                             </div>
-
-                                            {/* Input Gigante */}
-                                            <input 
-                                                type="number" 
-                                                inputMode="decimal"
-                                                defaultValue={actual}
-                                                placeholder="0"
-                                                className="w-24 h-12 bg-white text-center text-xl font-bold text-blue-700 rounded-md border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none shadow-inner"
-                                                onBlur={(e) => handleSaveData(rowId, m.id, 'actual', e.target.value)}
-                                            />
+                                            <input type="number" inputMode="decimal" defaultValue={actual} placeholder="0" className="w-24 h-12 bg-slate-800 text-center text-xl font-bold text-blue-400 rounded-md border border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none shadow-inner" onBlur={(e) => handleSaveData(rowId, m.id, 'actual', e.target.value)} />
                                         </div>
                                     </div>
                                 );
                             })}
                         </div>
-                        
-                        {/* Controles Flotantes Inferiores */}
-                        <div className="fixed bottom-0 left-0 w-full bg-white/90 backdrop-blur border-t p-3 flex justify-between items-center z-30">
-                             <button onClick={() => setWeekOffset(prev => Math.max(0, prev - 1))} className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600"><i data-lucide="chevron-left" className="w-5 h-5"></i></button>
-                             <span className="text-xs font-bold text-slate-400 uppercase">Semana {weekOffset + 1}</span>
-                             <button onClick={() => setWeekOffset(prev => prev + 1)} className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600"><i data-lucide="chevron-right" className="w-5 h-5"></i></button>
+                        <div className="fixed bottom-0 left-0 w-full bg-slate-900/90 backdrop-blur border-t border-slate-700 p-3 flex justify-between items-center z-30">
+                             <button onClick={() => setWeekOffset(prev => Math.max(0, prev - 1))} className="p-3 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400"><i data-lucide="chevron-left" className="w-5 h-5"></i></button>
+                             <span className="text-xs font-bold text-slate-500 uppercase">Semana {weekOffset + 1}</span>
+                             <button onClick={() => setWeekOffset(prev => prev + 1)} className="p-3 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400"><i data-lucide="chevron-right" className="w-5 h-5"></i></button>
                         </div>
                     </div>
                 );
             };
 
-            // --- VISTA DESKTOP (Tabla Clásica) ---
+            // --- VISTA DESKTOP ---
             const DesktopView = () => (
-                <div className="h-full flex flex-col bg-slate-100 overflow-hidden">
-                    <header className="bg-white shadow-sm border-b p-3 flex justify-between items-center z-20 shrink-0">
+                <div className="h-full flex flex-col bg-slate-900 overflow-hidden">
+                    <header className="bg-slate-800 shadow-sm border-b border-slate-700 p-3 flex justify-between items-center z-20 shrink-0">
                         <div className="flex items-center gap-4">
-                            <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-2 rounded-lg text-white shadow-lg">
+                            <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-2 rounded-lg text-white shadow-lg shadow-blue-900/50">
                                 <i data-lucide="factory" className="w-5 h-5"></i>
                             </div>
-                            <h1 className="font-bold text-slate-800">Control Cirineo 2026 <span className="text-xs text-slate-400 font-normal ml-2 hidden lg:inline">Semana {weekOffset + 1}</span></h1>
+                            <h1 className="font-bold text-slate-200">Control Cirineo 2026</h1>
+                            <button onClick={() => setShowVisibilityModal(true)} className="p-2 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 ml-4 transition-colors" title="Ajustar Visibilidad">
+                                <i data-lucide="eye" className="w-5 h-5"></i>
+                            </button>
                         </div>
                         <div className="flex items-center gap-2">
-                             <button onClick={() => setWeekOffset(prev => Math.max(0, prev - 1))} className="p-2 hover:bg-slate-100 rounded"><i data-lucide="chevron-left" className="w-5 h-5"></i></button>
-                             <button onClick={() => setWeekOffset(prev => prev + 1)} className="p-2 hover:bg-slate-100 rounded"><i data-lucide="chevron-right" className="w-5 h-5"></i></button>
-                             <button onClick={() => setUser(null)} className="p-2 text-red-400 hover:bg-red-50 rounded"><i data-lucide="log-out" className="w-5 h-5"></i></button>
+                             <button onClick={() => setWeekOffset(prev => Math.max(0, prev - 1))} className="p-2 hover:bg-slate-700 text-slate-400 rounded"><i data-lucide="chevron-left" className="w-5 h-5"></i></button>
+                             <span className="text-sm font-bold text-slate-500 uppercase px-2">Semana {weekOffset + 1}</span>
+                             <button onClick={() => setWeekOffset(prev => prev + 1)} className="p-2 hover:bg-slate-700 text-slate-400 rounded"><i data-lucide="chevron-right" className="w-5 h-5"></i></button>
+                             <div className="h-6 w-px bg-slate-700 mx-2"></div>
+                             <button onClick={() => setUser(null)} className="p-2 text-red-400 hover:bg-red-900/20 rounded"><i data-lucide="log-out" className="w-5 h-5"></i></button>
                         </div>
                     </header>
-                    <main className="flex-1 overflow-auto p-2">
-                        <div className="bg-white rounded-xl shadow border overflow-hidden h-full">
+                    <main className="flex-1 overflow-auto p-2 custom-scrollbar">
+                        <div className="bg-slate-800 rounded-xl shadow border border-slate-700 overflow-hidden h-full">
                             <div className="overflow-auto custom-scrollbar h-full relative">
                                 <table className="w-full border-collapse">
-                                    <thead className="sticky top-0 z-20 bg-slate-50 shadow-sm">
+                                    <thead className="sticky top-0 z-20 bg-slate-900 shadow-sm border-b border-slate-700">
                                         <tr>
-                                            <th className="sticky left-0 z-30 bg-slate-50 p-3 min-w-[120px] text-left border-r text-xs font-bold text-slate-500">FECHA</th>
-                                            {MACHINES.map(m => (
-                                                <th key={m.id} className="min-w-[100px] border-r p-2">
+                                            <th className="sticky left-0 z-30 bg-slate-900 p-3 min-w-[120px] text-left border-r border-slate-700 text-xs font-bold text-slate-500">FECHA</th>
+                                            {visibleMachines.map(m => (
+                                                <th key={m.id} className="min-w-[100px] border-r border-slate-700 p-2">
                                                     <div className="flex flex-col items-center">
-                                                        <span className="text-xs font-bold text-blue-800">{m.name.replace('MAQ ','')}</span>
-                                                        <span className="text-[9px] text-slate-400">{m.type}</span>
+                                                        <span className="text-xs font-bold text-blue-400">{m.name.replace('MAQ ','')}</span>
+                                                        <span className="text-[9px] text-slate-500">{m.type}</span>
                                                     </div>
                                                 </th>
                                             ))}
-                                            <th className="sticky right-0 z-20 bg-slate-50 border-l p-2 min-w-[80px] text-xs font-bold text-slate-500">TOTAL</th>
+                                            <th className="sticky right-0 z-20 bg-slate-900 border-l border-slate-700 p-2 min-w-[80px] text-xs font-bold text-slate-500">TOTAL</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {currentWeekRows.map(row => {
                                             const rowId = row.id;
                                             const rowData = data[rowId] || {};
-                                            const total = MACHINES.reduce((acc, m) => acc + (rowData[m.id]?.actual || 0), 0);
+                                            const total = visibleMachines.reduce((acc, m) => acc + (rowData[m.id]?.actual || 0), 0);
                                             return (
-                                                <tr key={rowId} className="border-b border-slate-100 hover:bg-slate-50">
-                                                    <td className="sticky left-0 bg-white p-2 border-r text-xs font-bold text-slate-600 shadow-sm">
-                                                        {row.shortDay} <br/> <span className="text-lg text-slate-800">{row.dateNum}</span>
+                                                <tr key={rowId} className="border-b border-slate-700 hover:bg-slate-700/50 transition-colors">
+                                                    <td className="sticky left-0 bg-slate-800 p-2 border-r border-slate-700 text-xs font-bold text-slate-400 shadow-[2px_0_5px_rgba(0,0,0,0.3)]">
+                                                        {row.shortDay} <br/> <span className="text-lg text-slate-200">{row.dateNum}</span>
                                                     </td>
-                                                    {MACHINES.map(m => {
+                                                    {visibleMachines.map(m => {
                                                         const mData = rowData[m.id] || {};
                                                         const actual = mData.actual !== undefined && mData.actual !== null ? mData.actual : '';
                                                         const pct = mData.percentage || 0;
                                                         
                                                         return (
-                                                            <td key={m.id} className="p-0 border-r relative h-[60px]">
+                                                            <td key={m.id} className="p-0 border-r border-slate-700 relative h-[60px]">
                                                                 <div className="flex flex-col h-full">
                                                                     {mData.plan_model && (
-                                                                        <div className="bg-slate-50 text-[9px] flex justify-between px-1 py-0.5 text-slate-500">
-                                                                            <span className="font-bold">{mData.plan_model}</span>
-                                                                            <span className={`${pct>=100?'text-green-600':pct<50?'text-red-500':'text-orange-500'} font-bold`}>{pct}%</span>
+                                                                        <div className="bg-slate-900/50 text-[9px] flex justify-between px-1 py-0.5 text-slate-500">
+                                                                            <span className="font-bold text-slate-400">{mData.plan_model}</span>
+                                                                            <span className={`${pct>=100?'text-green-400':pct<50?'text-red-400':'text-orange-400'} font-bold`}>{pct}%</span>
                                                                         </div>
                                                                     )}
                                                                     {user.role === ROLES.ADMIN && !mData.plan_model && (
-                                                                        <button onClick={() => setPlanModal({machineId: m.id, rowId})} className="absolute top-0 right-0 p-1 opacity-20 hover:opacity-100">
+                                                                        <button onClick={() => setPlanModal({machineId: m.id, rowId})} className="absolute top-0 right-0 p-1 opacity-20 hover:opacity-100 transition-opacity">
                                                                             <i data-lucide="edit-2" className="w-3 h-3 text-blue-500"></i>
                                                                         </button>
                                                                     )}
-                                                                    <input 
-                                                                        type="number" 
-                                                                        className="prod-input text-sm" 
-                                                                        defaultValue={actual}
-                                                                        onBlur={(e) => handleSaveData(rowId, m.id, 'actual', e.target.value)}
-                                                                        onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
-                                                                    />
+                                                                    <input type="number" className="prod-input text-sm" defaultValue={actual} onBlur={(e) => handleSaveData(rowId, m.id, 'actual', e.target.value)} onKeyDown={(e) => e.key === 'Enter' && e.target.blur()} />
                                                                 </div>
                                                             </td>
                                                         );
                                                     })}
-                                                    <td className="sticky right-0 bg-white border-l p-2 text-center font-black text-blue-600 shadow-sm">
+                                                    <td className="sticky right-0 bg-slate-800 border-l border-slate-700 p-2 text-center font-black text-blue-500 shadow-[-2px_0_5px_rgba(0,0,0,0.3)]">
                                                         {total.toLocaleString()}
                                                     </td>
                                                 </tr>
@@ -509,10 +691,18 @@
                         rowId={planModal.rowId} 
                         currentData={data[planModal.rowId]?.[planModal.machineId]} 
                         onClose={() => setPlanModal(null)} 
-                        onSave={handleSavePlan} 
+                        onSave={handleSavePlan}
+                        allRows={ALL_ROWS}
                     />}
                     
-                    {/* Render condicional responsivo usando clases CSS hidden/block es posible, pero aquí separamos por lógica de componente para limpieza */}
+                    {showVisibilityModal && <VisibilityModal 
+                        onClose={() => setShowVisibilityModal(false)}
+                        currentHiddenMachines={visibilityConfig.machines}
+                        currentHiddenDays={visibilityConfig.days}
+                        onSaveVisibility={handleSaveVisibility}
+                        allRows={ALL_ROWS}
+                    />}
+
                     <div className="block md:hidden h-full"><MobileView /></div>
                     <div className="hidden md:block h-full"><DesktopView /></div>
                 </div>
