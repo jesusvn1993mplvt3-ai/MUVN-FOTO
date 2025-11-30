@@ -20,11 +20,31 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         
+        /* Ocultar botones spinner en input type="number" */
         input[type=number]::-webkit-inner-spin-button, 
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         
         /* Transiciones suaves */
         .transition-all-300 { transition: all 0.3s ease-in-out; }
+
+        .prod-input {
+            width: 100%;
+            height: 100%;
+            padding: 4px 8px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 1.125rem; /* text-lg */
+            color: #1e3a8a; /* text-blue-900 */
+            border: none;
+            background: transparent;
+            outline: none;
+            transition: background 0.1s;
+        }
+
+        .prod-input:focus {
+            background: #eef2ff; /* bg-indigo-50 */
+            border: 1px solid #6366f1; /* border-indigo-500 */
+        }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 font-sans">
@@ -287,39 +307,6 @@
             );
         };
 
-        const ProductionInputModal = ({ machine, rowId, currentValue, onClose, onSave }) => {
-            const [val, setVal] = useState(currentValue === 0 ? '' : currentValue);
-            const inputRef = useRef(null);
-
-            useEffect(() => { if(inputRef.current) inputRef.current.focus(); }, []);
-
-            const handleSubmit = (e) => {
-                e.preventDefault();
-                onSave(rowId, machine.id, 'actual', Number(val));
-                onClose();
-            };
-
-            return (
-                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 fade-in" onClick={onClose}>
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <div className="bg-slate-800 p-4 text-white flex justify-between items-center">
-                            <h3 className="font-bold">Producción Real</h3>
-                            <button onClick={onClose}><i data-lucide="x" className="w-6 h-6"></i></button>
-                        </div>
-                        <form onSubmit={handleSubmit} className="p-8 flex flex-col gap-6 items-center">
-                            <div className="text-center">
-                                <p className="text-sm font-bold text-slate-400 uppercase tracking-wide">{rowId}</p>
-                                <h2 className="text-4xl font-black text-blue-700 mt-1">{machine.name}</h2>
-                            </div>
-                            <input ref={inputRef} type="number" value={val} onChange={(e) => setVal(e.target.value)}
-                                placeholder="0" className="w-full text-center text-6xl font-black text-slate-800 border-b-4 border-blue-500 focus:border-blue-700 outline-none bg-transparent" />
-                            <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold hover:bg-blue-700 text-lg shadow-lg">Guardar Dato</button>
-                        </form>
-                    </div>
-                </div>
-            );
-        };
-
         // --- BLOC DE NOTAS COMPARTIDO ---
         const NotepadDrawer = ({ isOpen, onClose }) => {
             const [note, setNote] = useState('');
@@ -386,7 +373,7 @@
 
             // Modales y Estados UI
             const [planModal, setPlanModal] = useState(null);
-            const [prodModal, setProdModal] = useState(null);
+            // const [prodModal, setProdModal] = useState(null); // ELIMINADO
             const [isNotepadOpen, setIsNotepadOpen] = useState(false);
 
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); });
@@ -409,30 +396,39 @@
                 return () => unsubAuth();
             }, []);
 
-            // Guardar Dato (Ahora con control de renderizado más estricto)
+            // Guardar Dato (Ahora se llama desde el input onBlur/onKeyDown)
             const handleSaveData = async (rowId, machineId, field, value) => {
+                // Aseguramos que el valor sea un número o null si es cero/vacío
+                const numericValue = Number(value) > 0 ? Number(value) : null;
+
+                // Solo actualizar si hay un cambio significativo para evitar escrituras innecesarias
+                const currentValue = data[rowId]?.[machineId]?.[field];
+                if (currentValue === numericValue) return;
+
                 const docRef = doc(db, 'produccion_2026', rowId);
                 
-                // Leemos el estado actual del documento localmente para calcular, pero Firestore es la verdad
+                // Leemos el estado actual del documento localmente para calcular
                 const currentRowData = data[rowId] || {};
                 const currentMachineData = currentRowData[machineId] || {};
 
-                let update = { [`${machineId}.${field}`]: value };
+                let update = { [`${machineId}.${field}`]: numericValue };
 
                 // Recalcular porcentajes
                 if (field === 'actual' || field.startsWith('plan_')) {
                     const plan = {
-                        tgt: field === 'plan_target_qty' ? value : currentMachineData.plan_target_qty,
-                        min: field === 'plan_time_min' ? value : currentMachineData.plan_time_min,
-                        hrs: field === 'plan_hours' ? value : currentMachineData.plan_hours,
-                        act: field === 'actual' ? value : currentMachineData.actual
+                        tgt: currentMachineData.plan_target_qty,
+                        min: currentMachineData.plan_time_min,
+                        hrs: currentMachineData.plan_hours,
+                        act: field === 'actual' ? numericValue : currentMachineData.actual
                     };
-                    const res = calculateProduction(plan.tgt, plan.min, plan.hrs, plan.act);
+                    // Si el plan existe, calculamos. Si no, calculamos con 0.
+                    const res = calculateProduction(plan.tgt || 0, plan.min || 0, plan.hrs || 0, plan.act || 0);
+
                     update[`${machineId}.calculated_target`] = res.targetPieces;
                     update[`${machineId}.percentage`] = res.percentage;
                 }
                 
-                // SetDoc con merge true actualiza sin borrar el resto
+                // setDoc con merge true actualiza sin borrar el resto
                 await setDoc(docRef, update, { merge: true });
             };
 
@@ -510,13 +506,6 @@
                         onClose={() => setPlanModal(null)} 
                         onSave={handleSavePlan} 
                     />}
-                    {prodModal && <ProductionInputModal 
-                        machine={MACHINES.find(m => m.id === prodModal.machineId)}
-                        rowId={prodModal.rowId}
-                        currentValue={prodModal.val}
-                        onClose={() => setProdModal(null)}
-                        onSave={handleSaveData}
-                    />}
                     
                     <NotepadDrawer isOpen={isNotepadOpen} onClose={() => setIsNotepadOpen(false)} />
 
@@ -585,7 +574,7 @@
                                                     
                                                     {/* CELDA FECHA */}
                                                     <td className="sticky left-0 z-10 bg-inherit p-2 border-r font-medium text-sm text-slate-600 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
-                                                        <div className="flex flex-col justify-between h-full min-h-[60px]">
+                                                        <div className="flex flex-col justify-between h-full min-h-[70px]">
                                                             <span className="uppercase">{rowId}</span>
                                                             
                                                             {user.role === ROLES.ADMIN && (
@@ -607,17 +596,17 @@
                                                         </div>
                                                     </td>
 
-                                                    {/* CELDAS MÁQUINAS */}
+                                                    {/* CELDAS MÁQUINAS (PRODUCCIÓN REAL AHORA ES INPUT) */}
                                                     {MACHINES.map(m => {
                                                         const mData = rowData[m.id] || {};
                                                         const isExpanded = expandedMachine === m.id;
                                                         const pct = mData.percentage || 0;
-                                                        // LEER VALOR DIRECTO O CERO
-                                                        const actualVal = mData.actual !== undefined ? mData.actual : 0; 
+                                                        // LEER VALOR DIRECTO DEL ESTADO DEL SNAPSHOT
+                                                        const actualVal = mData.actual !== undefined && mData.actual !== null ? mData.actual : ''; 
 
                                                         return (
                                                             <td key={m.id} className={`p-0 border-r relative transition-colors ${isExpanded ? 'bg-blue-50/30' : ''}`}>
-                                                                <div className="flex flex-col h-full min-h-[70px]">
+                                                                <div className="flex flex-col h-full min-h-[70px] justify-between">
                                                                     
                                                                     {/* HEADER CELDA (PLAN) */}
                                                                     {(isExpanded || user.role === ROLES.ADMIN) && (
@@ -650,16 +639,26 @@
                                                                         </div>
                                                                     )}
 
-                                                                    {/* VALOR PRODUCCIÓN (BOTÓN GRANDE) */}
-                                                                    <button 
-                                                                        onClick={() => canEdit && setProdModal({machineId: m.id, rowId, val: actualVal})}
-                                                                        disabled={!canEdit}
-                                                                        className={`flex-1 w-full text-center font-bold text-lg flex items-center justify-center hover:bg-black/5 transition-colors 
-                                                                            ${actualVal > 0 ? 'text-blue-900' : 'text-slate-300'} 
-                                                                            ${!canEdit ? 'cursor-default' : 'cursor-pointer'}`}
-                                                                    >
-                                                                        {actualVal > 0 ? actualVal : (canEdit ? '-' : '')}
-                                                                    </button>
+                                                                    {/* INPUT PRODUCCIÓN REAL */}
+                                                                    <div className="flex-1 flex items-center justify-center">
+                                                                        {canEdit ? (
+                                                                            <input
+                                                                                type="number"
+                                                                                defaultValue={actualVal} // Usamos defaultValue para permitir la edición, el onBlur guardará el valor final
+                                                                                placeholder="0"
+                                                                                className="prod-input"
+                                                                                onBlur={(e) => handleSaveData(rowId, m.id, 'actual', e.target.value)}
+                                                                                onKeyDown={(e) => {
+                                                                                    if (e.key === 'Enter') {
+                                                                                        e.target.blur(); // Forzar el guardado y perder el foco
+                                                                                    }
+                                                                                }}
+                                                                                title="Ingresa piezas producidas"
+                                                                            />
+                                                                        ) : (
+                                                                            <span className="text-lg font-bold text-blue-900">{actualVal || '-'}</span>
+                                                                        )}
+                                                                    </div>
                                                                 </div>
                                                             </td>
                                                         );
