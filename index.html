@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Control de Producción - Cirineo 2025</title>
+    <title>Control Producción - Enero 2025</title>
     
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
@@ -11,45 +11,19 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
-    <script>
-        // Utilidades simples de fecha para no depender de librerías externas pesadas
-        const DateUtils = {
-            formatID: (date) => date.toISOString().split('T')[0], // YYYY-MM-DD
-            addDays: (date, days) => { const d = new Date(date); d.setDate(d.getDate() + days); return d; },
-            startOfWeek: (date) => { const d = new Date(date); const day = d.getDay(); const diff = d.getDate() - day + (day === 0 ? -6 : 1); return new Date(d.setDate(diff)); }, // Lunes como inicio
-            formatDisplay: (dateStr) => {
-                const d = new Date(dateStr + 'T12:00:00'); // Forzar medio día para evitar timezone shifts
-                const days = ['DOMINGO', 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO'];
-                const months = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
-                return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
-            },
-            getMonthMatrix: (year, month) => {
-                const firstDay = new Date(year, month, 1);
-                const lastDay = new Date(year, month + 1, 0);
-                const startDay = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1; // Ajuste para Lunes=0
-                const days = [];
-                // Rellenar vacíos iniciales
-                for(let i=0; i<startDay; i++) days.push(null);
-                // Días del mes
-                for(let i=1; i<=lastDay.getDate(); i++) days.push(new Date(year, month, i));
-                return days;
-            }
-        };
-    </script>
-
     <style>
         .custom-scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         input[type=number]::-webkit-inner-spin-button, 
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        
         .machine-col { min-width: 100px; width: 100px; }
-        .machine-col.expanded { min-width: 220px; width: 220px; }
-        .fade-in { animation: fadeIn 0.3s ease-in-out; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .machine-col.expanded { min-width: 180px; width: 180px; }
     </style>
 </head>
-<body class="bg-slate-100 text-slate-800 font-sans">
+<body class="bg-slate-100 text-slate-800">
 
     <div id="root"></div>
 
@@ -58,9 +32,9 @@
         import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
         import { getFirestore, collection, doc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
-        const { useState, useEffect, useMemo, useCallback } = React;
+        const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- FIREBASE SETUP ---
+        // --- CONFIG FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyBqHgV4vDat1-VmZfKbiPg7nuiX-ROcexw",
             authDomain: "cirineo-cec21.firebaseapp.com",
@@ -72,512 +46,463 @@
         };
 
         const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
         const auth = getAuth(app);
+        const db = getFirestore(app);
 
-        // --- CONFIGURACIÓN ---
-        const ROLES = { ADMIN: 'admin', COMMENTATOR: 'commentator', OBSERVER: 'observer', OPERATOR: 'operator' };
-        const USERS = {
-            '1111': { name: 'Marco Espinoza', role: ROLES.ADMIN },
-            '0000': { name: 'Prisciliano Espinoza', role: ROLES.COMMENTATOR },
-            '2222': { name: 'Susana', role: ROLES.OBSERVER },
-            '3333': { name: 'Operadores', role: ROLES.OPERATOR },
-        };
+        // --- DATA ESTÁTICA ---
         const MACHINES = [
-            { id: 'm35', name: 'MAQ 35', type: 'SANTONI SM8 TOP 2V', diam: 16 },
-            { id: 'm39', name: 'MAQ 39', type: 'SANTONI SM8 TOP 2V', diam: 16 },
-            { id: 'm40', name: 'MAQ 40', type: 'SANTONI SM8 TOP 2V', diam: 16 },
-            { id: 'm36', name: 'MAQ 36', type: 'CIXING GE82', diam: 15 },
-            { id: 'm38', name: 'MAQ 38', type: 'SANTONI SM8 TOP 2V', diam: 15 },
-            { id: 'm37', name: 'MAQ 37', type: 'SANTONI SM8 TOP 2V', diam: 15 },
-            { id: 'm29', name: 'MAQ 29', type: 'SANTONI SM8 EVO 4', diam: 16 },
-            { id: 'm28', name: 'MAQ 28', type: 'SANTONI SM8 EVO 4', diam: 16 },
-            { id: 'm27', name: 'MAQ 27', type: 'SANTONI SM8 EVO 4', diam: 15 },
-            { id: 'm33', name: 'MAQ 33', type: 'SANTONI SM8 EVO 4', diam: 15 },
-            { id: 'm1',  name: 'MAQ 1',  type: 'CIXING', diam: 14 },
-            { id: 'm30', name: 'MAQ 30', type: 'CIXING GE82', diam: 14 },
-            { id: 'm31', name: 'MAQ 31', type: 'CIXING GE82', diam: 14 },
-            { id: 'm6',  name: 'MAQ 6',  type: 'CIXING GE82', diam: 14 },
-            { id: 'm32', name: 'MAQ 32', type: 'CIXING GE82', diam: 14 },
-            { id: 'm13', name: 'MAQ 13', type: 'SANTONI SM8 EVO 4', diam: 13 },
-            { id: 'm12', name: 'MAQ 12', type: 'SANTONI SM8 EVO 4', diam: 13 },
-            { id: 'm24', name: 'MAQ 24', type: 'SANTONI SM8 EVO 4', diam: 13 },
-            { id: 'm8',  name: 'MAQ 8',  type: 'SANTONI SM8 TOP 2', diam: 13 },
+            { id: 'm35', name: 'MAQ 35', type: 'SANTONI SM8', diam: 16, needles: 1440 },
+            { id: 'm39', name: 'MAQ 39', type: 'SANTONI SM8', diam: 16, needles: 1440 },
+            { id: 'm40', name: 'MAQ 40', type: 'SANTONI SM8', diam: 16, needles: 1440 },
+            { id: 'm36', name: 'MAQ 36', type: 'CIXING GE82', diam: 15, needles: 1344 },
+            { id: 'm38', name: 'MAQ 38', type: 'SANTONI SM8', diam: 15, needles: 1344 },
+            { id: 'm37', name: 'MAQ 37', type: 'SANTONI SM8', diam: 15, needles: 1344 },
+            { id: 'm29', name: 'MAQ 29', type: 'SANTONI EVO4', diam: 16, needles: 1296 },
+            { id: 'm28', name: 'MAQ 28', type: 'SANTONI EVO4', diam: 16, needles: 1296 },
+            { id: 'm27', name: 'MAQ 27', type: 'SANTONI EVO4', diam: 15, needles: 1248 },
+            { id: 'm33', name: 'MAQ 33', type: 'SANTONI EVO4', diam: 15, needles: 1344 },
+            { id: 'm1',  name: 'MAQ 1',  type: 'CIXING', diam: 14, needles: 1248 },
+            { id: 'm30', name: 'MAQ 30', type: 'CIXING GE82', diam: 14, needles: 1248 },
+            { id: 'm31', name: 'MAQ 31', type: 'CIXING GE82', diam: 14, needles: 1248 },
+            { id: 'm6',  name: 'MAQ 6',  type: 'CIXING GE82', diam: 14, needles: 1248 },
+            { id: 'm32', name: 'MAQ 32', type: 'CIXING GE82', diam: 14, needles: 1248 },
+            { id: 'm13', name: 'MAQ 13', type: 'SANTONI EVO4', diam: 13, needles: 1056 },
+            { id: 'm12', name: 'MAQ 12', type: 'SANTONI EVO4', diam: 13, needles: 1056 },
+            { id: 'm24', name: 'MAQ 24', type: 'SANTONI EVO4', diam: 13, needles: 1056 },
+            { id: 'm8',  name: 'MAQ 8',  type: 'SANTONI TOP2', diam: 13, needles: 1152 },
         ];
 
-        // --- COMPONENTES AUXILIARES ---
-        const MachineIcon = () => (
-            <img src="https://raw.githubusercontent.com/jesusvn1993mplvt3-ai/CIRINEO/refs/heads/main/icon.png" className="w-full h-full object-contain" onError={(e) => e.target.style.display='none'} />
+        // --- FUNCIONES DE FECHA ---
+        const getStartOfWeek = (date) => {
+            const d = new Date(date);
+            const day = d.getDay();
+            const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Ajustar al Lunes
+            return new Date(d.setDate(diff));
+        };
+
+        const generateWeekDays = (startDate) => {
+            const days = [];
+            const d = new Date(startDate);
+            const options = { weekday: 'short', day: 'numeric', month: 'short' };
+            
+            for (let i = 0; i < 7; i++) {
+                // ID formato YYYY-MM-DD para base de datos
+                const id = d.toISOString().split('T')[0];
+                // Label bonito para UI (Ej: LUN 01 ENE)
+                const label = d.toLocaleDateString('es-ES', options).toUpperCase().replace('.', '');
+                days.push({ id, label, dateObj: new Date(d) });
+                d.setDate(d.getDate() + 1);
+            }
+            return days;
+        };
+
+        // --- CÁLCULO LOCAL (NO DB) ---
+        const calculateStats = (targetQty, timeMin, hours, actualQty) => {
+            if (!targetQty || !timeMin || !hours) return { targetPieces: 0, percentage: 0 };
+            const totalMinutes = hours * 60;
+            const targetPieces = Math.round(totalMinutes / timeMin);
+            const percentage = targetPieces > 0 ? Math.min(100, (actualQty / targetPieces) * 100) : 0;
+            return { targetPieces, percentage: parseFloat(percentage.toFixed(1)) };
+        };
+
+        // --- COMPONENTES ---
+        const MachineIconImage = () => (
+            <img src="https://raw.githubusercontent.com/jesusvn1993mplvt3-ai/CIRINEO/refs/heads/main/icon.png" 
+                 className="w-full h-full object-contain opacity-80" alt="icon" 
+                 onError={(e) => e.target.style.display = 'none'} />
         );
 
-        // --- PANTALLA DE LOGIN ---
-        const Login = ({ onLogin }) => {
-            const [pin, setPin] = useState('');
-            const [error, setError] = useState('');
+        // --- MODAL PLANIFICACIÓN ---
+        const PlanningModal = ({ machine, day, currentData, onClose, onSave }) => {
+            const [model, setModel] = useState(currentData?.plan_model || '');
+            const [targetQty, setTargetQty] = useState(currentData?.plan_target_qty || '');
+            const [timeMin, setTimeMin] = useState(currentData?.plan_time_min || '');
+            const [hours, setHours] = useState(currentData?.plan_hours || 12);
+            const [selectedClones, setSelectedClones] = useState([]);
+            const [isCloneExpanded, setIsCloneExpanded] = useState(false);
+
+            const toggleMachineClone = (mId) => {
+                if (selectedClones.includes(mId)) setSelectedClones(prev => prev.filter(id => id !== mId));
+                else setSelectedClones(prev => [...prev, mId]);
+            };
+
+            const selectAllClones = () => {
+                if (selectedClones.length === MACHINES.length - 1) setSelectedClones([]);
+                else setSelectedClones(MACHINES.filter(m => m.id !== machine.id).map(m => m.id));
+            };
+
+            const handleSave = () => {
+                const data = {
+                    plan_model: model || null,
+                    plan_target_qty: Number(targetQty) || null,
+                    plan_time_min: Number(timeMin) || null,
+                    plan_hours: Number(hours) || null,
+                };
+                onSave(day.id, machine.id, data, selectedClones);
+                onClose();
+            };
+
+            // Cálculo local solo para visualizar en el modal
+            const { targetPieces } = calculateStats(Number(targetQty), Number(timeMin), Number(hours), 0);
+
+            return (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 bg-blue-600 text-white flex justify-between items-center rounded-t-xl shrink-0">
+                            <h3 className="text-lg font-bold flex items-center gap-2">
+                                <i data-lucide="calendar-clock" className="w-5 h-5"></i> Planificar: {machine.name}
+                            </h3>
+                            <button onClick={onClose}><i data-lucide="x" className="w-6 h-6"></i></button>
+                        </div>
+                        
+                        <div className="p-5 overflow-y-auto custom-scrollbar">
+                            <div className="text-center mb-4">
+                                <span className="bg-blue-100 text-blue-800 text-sm font-bold px-3 py-1 rounded-full uppercase">{day.label}</span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                                <label className="block">
+                                    <span className="text-xs font-bold text-slate-500">MODELO</span>
+                                    <input type="text" value={model} onChange={(e) => setModel(e.target.value)} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 uppercase" placeholder="Ej: B001" />
+                                </label>
+                                <label className="block">
+                                    <span className="text-xs font-bold text-slate-500">TOTAL PEDIDO</span>
+                                    <input type="number" value={targetQty} onChange={(e) => setTargetQty(e.target.value)} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" />
+                                </label>
+                                <label className="block">
+                                    <span className="text-xs font-bold text-slate-500">MINUTOS/PIEZA</span>
+                                    <input type="number" value={timeMin} onChange={(e) => setTimeMin(e.target.value)} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" />
+                                </label>
+                                <label className="block">
+                                    <span className="text-xs font-bold text-slate-500">HORAS TURNO</span>
+                                    <select value={hours} onChange={(e) => setHours(e.target.value)} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500">
+                                        <option value={12}>12 Horas</option>
+                                        <option value={24}>24 Horas</option>
+                                    </select>
+                                </label>
+                            </div>
+
+                            <div className="bg-slate-100 p-3 rounded-lg mb-4 flex justify-between items-center">
+                                <span className="text-sm font-medium">Meta Calculada:</span>
+                                <span className="text-xl font-black text-blue-700">{targetPieces.toLocaleString()} pzas</span>
+                            </div>
+
+                            <div className="border-t pt-3">
+                                <button onClick={() => setIsCloneExpanded(!isCloneExpanded)} className="flex items-center justify-between w-full text-slate-700 font-bold text-sm hover:bg-slate-50 p-2 rounded transition">
+                                    <span className="flex items-center gap-2"><i data-lucide="copy" className="w-4 h-4 text-purple-600"></i> Replicar a otras máquinas</span>
+                                    <i data-lucide={isCloneExpanded ? "chevron-up" : "chevron-down"} className="w-4 h-4"></i>
+                                </button>
+                                {isCloneExpanded && (
+                                    <div className="mt-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                        <div className="flex justify-between items-center mb-2 pb-2 border-b border-slate-200">
+                                            <span className="text-xs text-slate-500">Copiar plan a:</span>
+                                            <button onClick={selectAllClones} className="text-xs text-blue-600 font-bold hover:underline">{selectedClones.length === MACHINES.length - 1 ? 'Deseleccionar' : 'Todas'}</button>
+                                        </div>
+                                        <div className="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto custom-scrollbar">
+                                            {MACHINES.filter(m => m.id !== machine.id).map(m => (
+                                                <label key={m.id} className={`flex items-center gap-2 p-1 rounded cursor-pointer text-xs ${selectedClones.includes(m.id) ? 'bg-purple-100 text-purple-800' : 'hover:bg-slate-200'}`}>
+                                                    <input type="checkbox" checked={selectedClones.includes(m.id)} onChange={() => toggleMachineClone(m.id)} className="rounded text-purple-600" />
+                                                    {m.name.replace('MAQ ','')}
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="p-4 bg-slate-50 border-t rounded-b-xl flex justify-end gap-3 shrink-0">
+                            <button onClick={onClose} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">Cancelar</button>
+                            <button onClick={handleSave} className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-md">
+                                Guardar {selectedClones.length > 0 && `(+${selectedClones.length})`}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ProductionInputModal = ({ machine, day, currentValue, onClose, onSave }) => {
+            const [val, setVal] = useState(currentValue === 0 ? '' : currentValue);
+            const inputRef = useRef(null);
+
+            useEffect(() => { if(inputRef.current) inputRef.current.focus(); }, []);
 
             const handleSubmit = (e) => {
                 e.preventDefault();
-                if (USERS[pin]) onLogin(USERS[pin]);
-                else setError('PIN no reconocido');
+                onSave(day.id, machine.id, 'actual', Number(val));
+                onClose();
             };
 
             return (
-                <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
-                    <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm">
-                        <div className="text-center mb-8">
-                            <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white mx-auto mb-4 shadow-lg shadow-blue-200">
-                                <i data-lucide="layout-grid" className="w-8 h-8"></i>
-                            </div>
-                            <h1 className="text-2xl font-bold text-slate-800">Cirineo Producción</h1>
-                            <p className="text-slate-500">Sistema de Control 2025</p>
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="bg-slate-800 p-4 text-white flex justify-between items-center">
+                            <h3 className="font-bold">Producción Real</h3>
+                            <button onClick={onClose}><i data-lucide="x" className="w-6 h-6"></i></button>
                         </div>
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            <input 
-                                type="password" 
-                                value={pin} 
-                                onChange={e => setPin(e.target.value)} 
-                                maxLength="4" 
-                                className="w-full text-center text-4xl tracking-widest font-bold text-slate-800 border-2 border-slate-200 rounded-xl p-4 focus:border-blue-500 focus:outline-none transition-colors"
-                                placeholder="••••"
-                            />
-                            {error && <p className="text-red-500 text-center text-sm font-medium">{error}</p>}
-                            <button className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold hover:bg-slate-800 transition shadow-lg">INGRESAR</button>
+                        <form onSubmit={handleSubmit} className="p-8 flex flex-col gap-6 items-center">
+                            <div className="text-center">
+                                <p className="text-sm font-bold text-slate-400 uppercase tracking-wide">{day.label}</p>
+                                <h2 className="text-4xl font-black text-blue-700 mt-1">{machine.name}</h2>
+                            </div>
+                            <input ref={inputRef} type="number" value={val} onChange={(e) => setVal(e.target.value)}
+                                placeholder="0" className="w-full text-center text-6xl font-black text-slate-800 border-b-4 border-blue-500 focus:border-blue-700 outline-none bg-transparent" />
+                            <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold hover:bg-blue-700 text-lg shadow-lg">Registrar</button>
                         </form>
                     </div>
                 </div>
             );
         };
 
-        // --- MODAL DE PLANIFICACIÓN ---
-        const PlanningModal = ({ isOpen, onClose, machine, rowId, initialData, onSave, onMigrate }) => {
-            if (!isOpen) return null;
-            
-            const [data, setData] = useState({
-                model: initialData?.plan_model || '',
-                target: initialData?.plan_target_qty || '',
-                time: initialData?.plan_time_min || '',
-                hours: initialData?.plan_hours || 24
-            });
-            const [mode, setMode] = useState('edit'); // 'edit' or 'migrate'
-
-            const handleSave = () => {
-                onSave(rowId, machine.id, {
-                    plan_model: data.model,
-                    plan_target_qty: Number(data.target),
-                    plan_time_min: Number(data.time),
-                    plan_hours: Number(data.hours)
-                });
-                onClose();
-            };
-
-            return (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4" onClick={onClose}>
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
-                            <h3 className="font-bold flex items-center gap-2"><i data-lucide="settings-2" className="w-5 h-5"></i> {machine.name}</h3>
-                            <button onClick={onClose}><i data-lucide="x" className="w-5 h-5"></i></button>
-                        </div>
-                        
-                        {mode === 'edit' ? (
-                            <div className="p-6 space-y-4">
-                                <div className="text-xs text-slate-400 font-mono text-center mb-2">{DateUtils.formatDisplay(rowId)}</div>
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase">Modelo</label>
-                                    <input type="text" className="w-full border rounded-lg p-2 font-bold text-slate-800" value={data.model} onChange={e => setData({...data, model: e.target.value})} placeholder="Ej: B001" />
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-500 uppercase">Meta (Pzas)</label>
-                                        <input type="number" className="w-full border rounded-lg p-2" value={data.target} onChange={e => setData({...data, target: e.target.value})} />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-500 uppercase">Min/Pza</label>
-                                        <input type="number" className="w-full border rounded-lg p-2" value={data.time} onChange={e => setData({...data, time: e.target.value})} />
-                                    </div>
-                                </div>
-                                <div className="flex gap-2 pt-4">
-                                    <button onClick={handleSave} className="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700">Guardar Plan</button>
-                                    <button onClick={() => setMode('migrate')} className="px-4 bg-indigo-100 text-indigo-700 rounded-xl font-bold"><i data-lucide="arrow-right-left" className="w-5 h-5"></i></button>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="p-6">
-                                <h4 className="font-bold text-slate-800 mb-4">Migrar Pedido a otra máquina</h4>
-                                <div className="grid grid-cols-3 gap-2 max-h-60 overflow-y-auto">
-                                    {MACHINES.filter(m => m.id !== machine.id).map(m => (
-                                        <button key={m.id} onClick={() => { onMigrate(rowId, m.id, data); onClose(); }} className="text-xs p-2 border rounded hover:bg-blue-50 text-left">
-                                            <b>{m.name}</b>
-                                        </button>
-                                    ))}
-                                </div>
-                                <button onClick={() => setMode('edit')} className="w-full mt-4 text-slate-500 text-sm">Cancelar</button>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            );
-        };
-
-        // --- COMPONENTE: TABLA DE PRODUCCIÓN ---
-        const ProductionTable = ({ startDate, productionData, onUpdate, userRole, openPlanning }) => {
+        // --- APP PRINCIPAL ---
+        const App = () => {
+            const [data, setData] = useState({});
+            const [loading, setLoading] = useState(true);
             const [expandedMachine, setExpandedMachine] = useState(null);
+            
+            // Estado para el Calendario (Inicia Enero 2025)
+            const [currentDate, setCurrentDate] = useState(new Date('2025-01-01T12:00:00'));
+            
+            // Portapapeles
+            const [dayClipboard, setDayClipboard] = useState(null);
 
-            // Generar 7 días a partir de la fecha de inicio
-            const rows = useMemo(() => {
-                const r = [];
-                let d = new Date(startDate);
-                for (let i = 0; i < 7; i++) {
-                    r.push(DateUtils.formatID(d));
-                    d.setDate(d.getDate() + 1);
-                }
-                return r;
-            }, [startDate]);
+            // Modales
+            const [planModal, setPlanModal] = useState(null);
+            const [prodModal, setProdModal] = useState(null);
 
-            // Lógica de "Cascada Temporal"
-            const getMachineState = (rowId, machineId) => {
-                // 1. Datos directos del día
-                const directData = productionData[rowId]?.[machineId] || {};
-                
-                // 2. Si hay plan hoy, úsalo. Si no, BUSCA HACIA ATRÁS en toda la BBDD.
-                let activePlan = directData.plan_model ? directData : null;
-                let accumulated = 0;
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); });
 
-                if (!activePlan) {
-                    // Buscar el plan más reciente anterior a esta fecha
-                    const allDates = Object.keys(productionData).sort();
-                    const currentIndex = allDates.indexOf(rowId);
-                    
-                    // Buscar hacia atrás desde la fecha actual (o desde el final si la fecha no existe aun)
-                    let searchLimit = currentIndex === -1 ? allDates.length - 1 : currentIndex - 1;
-                    
-                    for (let i = searchLimit; i >= 0; i--) {
-                        const prevDate = allDates[i];
-                        if (prevDate >= rowId) continue; // Seguridad
-                        
-                        const prevData = productionData[prevDate]?.[machineId];
-                        if (prevData?.plan_model) {
-                            activePlan = prevData;
-                            break; // Encontramos el padre
-                        }
-                    }
-                }
+            useEffect(() => {
+                signInAnonymously(auth);
+                // "produccion_enero_2025" nueva colección limpia
+                const unsubDb = onSnapshot(collection(db, 'produccion_enero_2025'), (snap) => {
+                    const d = {};
+                    snap.forEach(doc => d[doc.id] = doc.data());
+                    setData(d);
+                    setLoading(false);
+                });
+                return () => unsubDb();
+            }, []);
 
-                // Calcular acumulado sumando producciones desde la fecha del plan hasta ayer
-                if (activePlan) {
-                    // Encontrar fecha de inicio del plan
-                    // Nota: Esto es costoso computacionalmente en producción real, aquí es simulación
-                    Object.keys(productionData).forEach(date => {
-                        // Si la fecha es >= fecha plan y <= fecha actual
-                         // (Simplificación para demo: sumamos todo lo que coincida con el modelo en fechas previas)
-                         // Una implementación real requiere guardar el ID del plan.
-                         // Aquí sumaremos 'actual' si el modelo coincide para evitar sumar de otros pedidos
-                         const cell = productionData[date]?.[machineId];
-                         if (date <= rowId && cell?.plan_model === activePlan.plan_model) {
-                             accumulated += (cell.actual || 0);
-                         } else if (date <= rowId && !cell?.plan_model && activePlan) {
-                             // Si es un día heredado, asume que es el mismo pedido
-                             // (Lógica simplificada de herencia)
-                             // Para hacerlo robusto: Buscamos plan padre de 'date' y si es el mismo 'activePlan', sumamos.
-                         }
-                    });
-                }
-
-                return {
-                    ...directData,
-                    displayPlan: activePlan,
-                    accumulatedTotal: accumulated // (Este valor es aproximado en esta demo simple)
-                };
-            };
-
-            return (
-                <div className="flex-1 overflow-auto bg-white rounded-xl shadow border border-slate-200 custom-scrollbar relative">
-                    <table className="w-full border-collapse">
-                        <thead className="bg-slate-50 sticky top-0 z-20 shadow-sm">
-                            <tr>
-                                <th className="p-3 text-left min-w-[120px] text-xs font-bold text-slate-500 border-r">FECHA</th>
-                                {MACHINES.map(m => (
-                                    <th key={m.id} className={`machine-col ${expandedMachine === m.id ? 'expanded' : ''} p-2 border-r transition-all align-top`}>
-                                        <button onClick={() => setExpandedMachine(expandedMachine === m.id ? null : m.id)} className="w-full flex flex-col items-center">
-                                            <div className="w-8 h-8 opacity-80"><MachineIcon /></div>
-                                            <span className="text-xs font-bold text-blue-900 mt-1">{m.name.replace('MAQ ','')}</span>
-                                            {expandedMachine === m.id && <span className="text-[10px] text-slate-400">{m.type}</span>}
-                                        </button>
-                                    </th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {rows.map(dateId => (
-                                <tr key={dateId} className="border-b border-slate-100 hover:bg-slate-50/80 transition-colors">
-                                    <td className="p-3 border-r bg-white sticky left-0 z-10 text-xs font-bold text-slate-600 whitespace-nowrap shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
-                                        {DateUtils.formatDisplay(dateId)}
-                                    </td>
-                                    {MACHINES.map(m => {
-                                        const cell = getMachineState(dateId, m.id);
-                                        const hasPlan = !!cell.displayPlan;
-                                        const isExpanded = expandedMachine === m.id;
-                                        const canEdit = userRole !== ROLES.OBSERVER;
-                                        const isAdmin = userRole === ROLES.ADMIN;
-
-                                        return (
-                                            <td key={m.id} className={`p-1 border-r relative transition-all ${isExpanded ? 'bg-blue-50/30' : ''}`}>
-                                                <div className="flex flex-col gap-1 h-full min-h-[50px]">
-                                                    
-                                                    {/* Plan Info */}
-                                                    <div className={`text-[10px] p-1 rounded flex justify-between items-start ${hasPlan ? 'bg-blue-100/50 text-blue-800' : ''}`}>
-                                                        {hasPlan ? (
-                                                            <div className="overflow-hidden">
-                                                                <div className="font-bold truncate max-w-[80px]" title={cell.displayPlan.plan_model}>{cell.displayPlan.plan_model}</div>
-                                                                {isExpanded && (
-                                                                    <div className="text-slate-500 leading-tight mt-1">
-                                                                        Meta: {cell.displayPlan.plan_target_qty}<br/>
-                                                                        Turno: {cell.displayPlan.plan_hours}h
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        ) : <span className="text-slate-300">-</span>}
-                                                        
-                                                        {isAdmin && (
-                                                            <button onClick={() => openPlanning(m, dateId, cell)} className="text-slate-400 hover:text-blue-600">
-                                                                <i data-lucide={hasPlan && cell.plan_model ? "edit-2" : "plus"} className="w-3 h-3"></i>
-                                                            </button>
-                                                        )}
-                                                    </div>
-
-                                                    {/* Input Producción */}
-                                                    <input 
-                                                        type="number" 
-                                                        value={cell.actual || ''} 
-                                                        onChange={(e) => canEdit && onUpdate(dateId, m.id, { actual: Number(e.target.value) })}
-                                                        placeholder="-"
-                                                        className={`w-full text-center font-bold text-sm bg-transparent outline-none py-1 rounded ${canEdit ? 'hover:bg-white focus:bg-white focus:ring-2 ring-blue-200' : ''}`}
-                                                        readOnly={!canEdit}
-                                                    />
-                                                </div>
-                                            </td>
-                                        );
-                                    })}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            );
-        };
-
-        // --- DASHBOARD ADMIN (Calendario y Resumen) ---
-        const AdminDashboard = ({ user, productionData, onUpdate, openPlanning }) => {
-            const [viewDate, setViewDate] = useState(new Date()); // Fecha seleccionada para el calendario
-            const [selectedStartWeek, setSelectedStartWeek] = useState(DateUtils.startOfWeek(new Date())); // Fecha inicio tabla
-
-            // Estadísticas (Mockup basado en datos reales)
-            const stats = useMemo(() => {
-                let totalToday = 0;
-                const todayId = DateUtils.formatID(new Date());
-                Object.values(productionData[todayId] || {}).forEach(m => totalToday += (m.actual || 0));
-                return { totalToday, activeMachines: 18 }; // Simplificado
-            }, [productionData]);
+            // Generar días de la semana actual visible
+            const weekDays = useMemo(() => {
+                const start = getStartOfWeek(currentDate);
+                return generateWeekDays(start);
+            }, [currentDate]);
 
             // Navegación Calendario
-            const changeMonth = (delta) => {
-                const newDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + delta, 1);
-                setViewDate(newDate);
+            const changeWeek = (offset) => {
+                const newDate = new Date(currentDate);
+                newDate.setDate(newDate.getDate() + (offset * 7));
+                setCurrentDate(newDate);
             };
 
-            const calendarDays = DateUtils.getMonthMatrix(viewDate.getFullYear(), viewDate.getMonth());
+            const goToToday = () => setCurrentDate(new Date());
+
+            // GUARDAR SOLO DATOS CRUDOS (SIN CÁLCULOS)
+            const handleSaveData = async (rowId, machineId, field, value) => {
+                const docRef = doc(db, 'produccion_enero_2025', rowId);
+                // Solo guardamos el dato raw. El cliente calcula el %.
+                let update = { [`${machineId}.${field}`]: value };
+                await setDoc(docRef, update, { merge: true });
+            };
+
+            const handleSavePlan = async (rowId, machineId, planData, cloneToIds = []) => {
+                const docRef = doc(db, 'produccion_enero_2025', rowId);
+                const updates = {};
+                const targets = [machineId, ...cloneToIds];
+
+                targets.forEach(mId => {
+                    const currentM = data[rowId]?.[mId] || {};
+                    // Preservar 'actual' si existe, sobrescribir plan
+                    updates[mId] = {
+                        ...currentM,
+                        ...planData
+                    };
+                });
+                await setDoc(docRef, updates, { merge: true });
+            };
+
+            const copyDay = (day) => {
+                if (!data[day.id]) {
+                    alert("No hay datos para copiar.");
+                    return;
+                }
+                setDayClipboard({ id: day.id, label: day.label, data: data[day.id] });
+            };
+
+            const pasteDay = async (targetDay) => {
+                if (!dayClipboard) return;
+                if (!confirm(`¿Pegar PLAN de ${dayClipboard.label} en ${targetDay.label}?`)) return;
+
+                const sourceData = dayClipboard.data;
+                const targetDataCurrent = data[targetDay.id] || {};
+                const updates = {};
+
+                MACHINES.forEach(m => {
+                    const sourceM = sourceData[m.id];
+                    const targetM = targetDataCurrent[m.id] || {};
+                    if (sourceM) {
+                        updates[m.id] = {
+                            ...targetM, // Mantiene produccion real del destino
+                            plan_model: sourceM.plan_model,
+                            plan_target_qty: sourceM.plan_target_qty,
+                            plan_time_min: sourceM.plan_time_min,
+                            plan_hours: sourceM.plan_hours
+                        };
+                    }
+                });
+
+                const docRef = doc(db, 'produccion_enero_2025', targetDay.id);
+                await setDoc(docRef, updates, { merge: true });
+                setDayClipboard(null);
+            };
+
+            if (loading) return <div className="h-screen flex items-center justify-center"><i data-lucide="loader-2" className="animate-spin w-10 h-10 text-blue-600"></i></div>;
 
             return (
-                <div className="flex flex-col h-screen overflow-hidden">
-                    {/* Header Admin */}
-                    <header className="bg-slate-900 text-white p-4 flex justify-between items-center shadow-md z-30">
-                        <div className="flex items-center gap-4">
-                            <div className="bg-blue-600 p-2 rounded-lg"><i data-lucide="layout-dashboard" className="w-6 h-6"></i></div>
-                            <div>
-                                <h1 className="text-xl font-bold">Panel Global</h1>
-                                <p className="text-xs text-slate-400">Bienvenido, {user.name}</p>
-                            </div>
-                        </div>
-                        <div className="flex gap-4 text-right">
-                            <div>
-                                <p className="text-xs text-slate-400 uppercase font-bold">Producción Hoy</p>
-                                <p className="text-xl font-bold text-green-400">{stats.totalToday.toLocaleString()} Pzas</p>
-                            </div>
-                            <button onClick={() => location.reload()} className="bg-red-500/20 hover:bg-red-500 p-2 rounded-lg transition"><i data-lucide="log-out" className="w-5 h-5"></i></button>
-                        </div>
-                    </header>
+                <div className="h-screen flex flex-col bg-slate-100 overflow-hidden">
+                    {/* MODALES */}
+                    {planModal && <PlanningModal 
+                        machine={MACHINES.find(m => m.id === planModal.machineId)} 
+                        day={planModal.day} 
+                        currentData={data[planModal.day.id]?.[planModal.machineId]} 
+                        onClose={() => setPlanModal(null)} 
+                        onSave={handleSavePlan} 
+                    />}
+                    {prodModal && <ProductionInputModal 
+                        machine={MACHINES.find(m => m.id === prodModal.machineId)}
+                        day={prodModal.day}
+                        currentValue={prodModal.val}
+                        onClose={() => setProdModal(null)}
+                        onSave={handleSaveData}
+                    />}
 
-                    <div className="flex flex-1 overflow-hidden">
-                        {/* Sidebar: Calendario de Navegación */}
-                        <aside className="w-80 bg-white border-r border-slate-200 flex flex-col z-20 shadow-lg">
-                            <div className="p-4 border-b">
-                                <div className="flex justify-between items-center mb-4">
-                                    <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-slate-100 rounded"><i data-lucide="chevron-left" className="w-5 h-5"></i></button>
-                                    <span className="font-bold text-slate-800 uppercase">{viewDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}</span>
-                                    <button onClick={() => changeMonth(1)} className="p-1 hover:bg-slate-100 rounded"><i data-lucide="chevron-right" className="w-5 h-5"></i></button>
+                    {/* HEADER & CALENDARIO */}
+                    <header className="bg-white shadow-sm border-b p-2 z-20">
+                        <div className="flex justify-between items-center mb-2">
+                            <div className="flex items-center gap-2">
+                                <div className="bg-blue-600 p-1.5 rounded text-white shadow">
+                                    <i data-lucide="calendar-range" className="w-5 h-5"></i>
                                 </div>
-                                <div className="grid grid-cols-7 text-center text-xs font-bold text-slate-400 mb-2">
-                                    <span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span>
-                                </div>
-                                <div className="grid grid-cols-7 gap-1">
-                                    {calendarDays.map((d, i) => {
-                                        if (!d) return <div key={i}></div>;
-                                        const isSelected = DateUtils.formatID(d) === DateUtils.formatID(selectedStartWeek);
-                                        const isToday = DateUtils.formatID(d) === DateUtils.formatID(new Date());
-                                        return (
-                                            <button 
-                                                key={i} 
-                                                onClick={() => setSelectedStartWeek(DateUtils.startOfWeek(d))}
-                                                className={`h-8 w-8 rounded-full text-xs font-medium flex items-center justify-center transition 
-                                                    ${isSelected ? 'bg-blue-600 text-white shadow-md' : 'hover:bg-slate-100 text-slate-700'}
-                                                    ${isToday && !isSelected ? 'border border-blue-600 text-blue-600' : ''}
-                                                `}
-                                            >
-                                                {d.getDate()}
-                                            </button>
-                                        );
-                                    })}
+                                <div>
+                                    <h1 className="font-bold text-slate-800 leading-none">Producción 2025</h1>
+                                    <span className="text-[10px] text-slate-400 uppercase tracking-widest">Inicio Enero</span>
                                 </div>
                             </div>
                             
-                            <div className="p-4 flex-1 bg-slate-50">
-                                <h3 className="text-xs font-bold text-slate-500 uppercase mb-3">Accesos Rápidos</h3>
-                                <button onClick={() => setSelectedStartWeek(DateUtils.startOfWeek(new Date()))} className="w-full mb-2 bg-white border border-slate-200 p-3 rounded-lg flex items-center gap-3 text-sm font-bold text-slate-700 hover:shadow-md transition">
-                                    <i data-lucide="calendar-check" className="w-4 h-4 text-blue-500"></i> Ir a Hoy
-                                </button>
-                                <button onClick={() => setSelectedStartWeek(DateUtils.startOfWeek(new Date(new Date().getFullYear() + 1, 0, 1)))} className="w-full bg-white border border-slate-200 p-3 rounded-lg flex items-center gap-3 text-sm font-bold text-slate-700 hover:shadow-md transition">
-                                    <i data-lucide="calendar-days" className="w-4 h-4 text-purple-500"></i> Próximo Año
-                                </button>
+                            <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-1">
+                                <button onClick={() => changeWeek(-1)} className="p-1 hover:bg-white rounded shadow-sm text-slate-600"><i data-lucide="chevron-left" className="w-5 h-5"></i></button>
+                                <button onClick={goToToday} className="px-3 py-1 text-xs font-bold text-slate-600 hover:bg-white rounded shadow-sm">HOY</button>
+                                <button onClick={() => changeWeek(1)} className="p-1 hover:bg-white rounded shadow-sm text-slate-600"><i data-lucide="chevron-right" className="w-5 h-5"></i></button>
                             </div>
-                        </aside>
-
-                        {/* Área Principal: Tabla */}
-                        <main className="flex-1 flex flex-col bg-slate-100 p-4 min-w-0">
-                            <div className="mb-2 flex justify-between items-end">
-                                <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2">
-                                    <i data-lucide="list" className="w-5 h-5"></i>
-                                    Semana del {DateUtils.formatDisplay(DateUtils.formatID(selectedStartWeek))}
-                                </h2>
-                            </div>
-                            <ProductionTable 
-                                startDate={selectedStartWeek} 
-                                productionData={productionData}
-                                onUpdate={onUpdate}
-                                userRole={user.role}
-                                openPlanning={openPlanning}
-                            />
-                        </main>
-                    </div>
-                </div>
-            );
-        };
-
-        // --- DASHBOARD OPERADOR (Simple) ---
-        const OperatorView = ({ user, productionData, onUpdate }) => {
-            const currentWeekStart = DateUtils.startOfWeek(new Date());
-
-            return (
-                <div className="h-screen flex flex-col bg-slate-50">
-                    <header className="bg-white p-4 border-b flex justify-between items-center sticky top-0 z-30">
-                        <div>
-                            <h1 className="text-lg font-bold text-slate-800">Control de Piso</h1>
-                            <p className="text-xs text-slate-500">{user.name}</p>
                         </div>
-                        <button onClick={() => location.reload()} className="text-red-500 font-bold text-sm">SALIR</button>
                     </header>
-                    <main className="flex-1 p-2 overflow-hidden flex flex-col">
-                        <ProductionTable 
-                            startDate={currentWeekStart} 
-                            productionData={productionData}
-                            onUpdate={onUpdate}
-                            userRole={user.role}
-                            openPlanning={() => {}} // Operadores no planean
-                        />
+
+                    {/* TABLA */}
+                    <main className="flex-1 overflow-auto p-2">
+                        <div className="bg-white rounded-xl shadow border overflow-hidden">
+                            <div className="overflow-x-auto custom-scrollbar pb-2">
+                                <table className="w-full border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 border-b">
+                                            <th className="sticky left-0 z-10 bg-slate-50 p-3 min-w-[120px] border-r text-left shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                                                <span className="text-xs font-bold text-slate-400">FECHA</span>
+                                            </th>
+                                            {MACHINES.map(m => (
+                                                <th key={m.id} className={`p-0 border-r align-top transition-all ${expandedMachine === m.id ? 'min-w-[180px]' : 'min-w-[100px]'}`}>
+                                                    <button onClick={() => setExpandedMachine(expandedMachine === m.id ? null : m.id)} 
+                                                        className={`w-full h-full p-2 flex flex-col items-center gap-1 ${expandedMachine === m.id ? 'bg-blue-50' : 'hover:bg-slate-100'}`}>
+                                                        <div className="w-8 h-8"><MachineIconImage /></div>
+                                                        <span className="text-sm font-bold text-blue-800">{m.name.replace('MAQ ','')}</span>
+                                                    </button>
+                                                </th>
+                                            ))}
+                                            <th className="sticky right-0 bg-slate-50 p-3 min-w-[80px] border-l shadow-[-2px_0_5px_rgba(0,0,0,0.05)] text-center text-xs font-bold text-slate-500">TOTAL</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {weekDays.map((day, idx) => {
+                                            const rowData = data[day.id] || {};
+                                            const totalRow = MACHINES.reduce((acc, m) => acc + (rowData[m.id]?.actual || 0), 0);
+                                            
+                                            // Estilo para resaltar hoy
+                                            const isToday = new Date().toDateString() === day.dateObj.toDateString();
+                                            const rowClass = isToday ? 'bg-blue-50/60 ring-2 ring-inset ring-blue-200' : (idx%2===0 ? 'bg-white' : 'bg-slate-50/50');
+
+                                            return (
+                                                <tr key={day.id} className={`border-b border-slate-100 group ${rowClass}`}>
+                                                    
+                                                    {/* FECHA */}
+                                                    <td className="sticky left-0 z-10 bg-inherit p-2 border-r font-medium text-sm text-slate-600 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                                                        <div className="flex flex-col justify-between h-full min-h-[50px]">
+                                                            <span className={isToday ? "text-blue-700 font-bold" : ""}>{day.label}</span>
+                                                            
+                                                            <div className="flex gap-2 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                <button onClick={() => copyDay(day)} title="Copiar Plan" className="text-slate-400 hover:text-blue-600">
+                                                                    <i data-lucide="copy" className="w-3 h-3"></i>
+                                                                </button>
+                                                                {dayClipboard && dayClipboard.id !== day.id && (
+                                                                    <button onClick={() => pasteDay(day)} title="Pegar Plan" className="text-orange-500 hover:text-orange-700 animate-pulse font-bold flex items-center gap-1 text-[10px] bg-orange-50 px-1 rounded border border-orange-200">
+                                                                        <i data-lucide="clipboard-paste" className="w-3 h-3"></i>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+
+                                                    {/* CELDAS MAQUINAS */}
+                                                    {MACHINES.map(m => {
+                                                        const mData = rowData[m.id] || {};
+                                                        const isExpanded = expandedMachine === m.id;
+                                                        
+                                                        // CALCULO LOCAL DE METAS Y PORCENTAJES
+                                                        const stats = calculateStats(mData.plan_target_qty, mData.plan_time_min, mData.plan_hours, mData.actual || 0);
+                                                        const pct = stats.percentage;
+                                                        const target = stats.targetPieces;
+
+                                                        return (
+                                                            <td key={m.id} className={`p-0 border-r relative transition-all ${isExpanded ? 'bg-blue-50/20' : ''}`}>
+                                                                <div className="flex flex-col h-full min-h-[60px]">
+                                                                    
+                                                                    <div className="flex justify-between items-start p-1 text-[10px] bg-slate-50/50 min-h-[24px]">
+                                                                        <div className="flex flex-col leading-none">
+                                                                            <span className="font-bold text-slate-700">{mData.plan_model || '-'}</span>
+                                                                            {isExpanded && target > 0 && <span className="text-slate-400">Obj: {target}</span>}
+                                                                        </div>
+                                                                        {mData.plan_model && (
+                                                                            <span className={`font-black px-1 rounded ${pct>=100?'bg-green-200 text-green-800': pct>70?'bg-orange-100 text-orange-700':'bg-red-100 text-red-700'}`}>
+                                                                                {pct}%
+                                                                            </span>
+                                                                        )}
+                                                                        <button onClick={() => setPlanModal({machineId: m.id, day})} className="text-blue-300 hover:text-blue-600 ml-1 opacity-0 group-hover:opacity-100">
+                                                                            <i data-lucide="edit-3" className="w-3 h-3"></i>
+                                                                        </button>
+                                                                    </div>
+
+                                                                    <button 
+                                                                        onClick={() => setProdModal({machineId: m.id, day, val: mData.actual || 0})}
+                                                                        className={`flex-1 w-full text-center font-bold text-lg hover:bg-black/5 transition-colors ${mData.actual > 0 ? 'text-blue-900' : 'text-slate-300'}`}
+                                                                    >
+                                                                        {mData.actual > 0 ? mData.actual : '-'}
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        );
+                                                    })}
+                                                    <td className="sticky right-0 bg-slate-50 border-l p-2 text-center font-black text-blue-600 shadow-[-2px_0_5px_rgba(0,0,0,0.05)]">
+                                                        {totalRow.toLocaleString()}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </main>
                 </div>
-            );
-        };
-
-        // --- APP PRINCIPAL ---
-        const App = () => {
-            const [user, setUser] = useState(null);
-            const [productionData, setProductionData] = useState({});
-            const [loading, setLoading] = useState(true);
-            const [modalConfig, setModalConfig] = useState(null); // { isOpen, machine, rowId, initialData }
-
-            // Iconos
-            useEffect(() => { if (window.lucide) window.lucide.createIcons(); });
-
-            // Auth
-            useEffect(() => {
-                const unsub = onAuthStateChanged(auth, u => {
-                    if(u) {
-                        const q = collection(db, 'produccion_2025');
-                        onSnapshot(q, snap => {
-                            const d = {};
-                            snap.forEach(doc => d[doc.id] = doc.data());
-                            setProductionData(d);
-                            setLoading(false);
-                        });
-                    } else {
-                        signInAnonymously(auth);
-                    }
-                });
-                return () => unsub();
-            }, []);
-
-            const handleUpdate = useCallback(async (rowId, machineId, data) => {
-                if(!user) return;
-                try {
-                    const ref = doc(db, 'produccion_2025', rowId);
-                    const updatePayload = {};
-                    Object.keys(data).forEach(k => updatePayload[`${machineId}.${k}`] = data[k]);
-                    await setDoc(ref, updatePayload, { merge: true });
-                } catch(e) { console.error(e); }
-            }, [user]);
-
-            const handleMigrate = (sourceRowId, targetMachineId, planData) => {
-                // Migra el plan al MISMO día pero otra máquina
-                handleUpdate(sourceRowId, targetMachineId, {
-                    plan_model: planData.model,
-                    plan_target_qty: Number(planData.target), // Aquí podría ir lógica de remanente
-                    plan_time_min: Number(planData.time),
-                    plan_hours: 24,
-                    migratedFrom: sourceRowId // Flag opcional
-                });
-            };
-
-            if (!user) return <Login onLogin={setUser} />;
-            if (loading) return <div className="h-screen flex items-center justify-center text-blue-600 font-bold">CARGANDO...</div>;
-
-            const isPowerUser = [ROLES.ADMIN, ROLES.COMMENTATOR].includes(user.role);
-
-            return (
-                <>
-                    {isPowerUser ? (
-                        <AdminDashboard 
-                            user={user} 
-                            productionData={productionData} 
-                            onUpdate={handleUpdate}
-                            openPlanning={(machine, rowId, cell) => setModalConfig({ isOpen: true, machine, rowId, initialData: cell })}
-                        />
-                    ) : (
-                        <OperatorView 
-                            user={user} 
-                            productionData={productionData} 
-                            onUpdate={handleUpdate}
-                        />
-                    )}
-
-                    <PlanningModal 
-                        isOpen={modalConfig?.isOpen}
-                        onClose={() => setModalConfig(null)}
-                        machine={modalConfig?.machine}
-                        rowId={modalConfig?.rowId}
-                        initialData={modalConfig?.initialData}
-                        onSave={handleUpdate}
-                        onMigrate={handleMigrate}
-                    />
-                </>
             );
         };
 
@@ -586,3 +511,4 @@
     </script>
 </body>
 </html>
+
